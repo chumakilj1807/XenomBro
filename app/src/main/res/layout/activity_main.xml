@@ -43,7 +43,7 @@
             android:layout_marginEnd="8dp"
             android:background="@drawable/bg_url_bar"
             android:hint="@string/search_hint"
-            android:hintTextColor="@color/text_hint"
+            android:textColorHint="@color/text_hint"
             android:textColor="@color/text"
             android:textSize="16sp"
             android:paddingStart="16dp"
