@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XenomBrowser</string>
+    <string name="search_hint">Поиск или адрес сайта</string>
+    <string name="bookmarks">Закладки</string>
+    <string name="add_bookmark">Добавить закладку</string>
+    <string name="bookmark_added">Закладка добавлена</string>
+    <string name="bookmark_removed">Закладка удалена</string>
+    <string name="nav_mode_on">Режим навигации — ОК: нажать, НАЗАД: выход</string>
+    <string name="skip_found">Найдена кнопка пропуска — ОК для нажатия</string>
+</resources>
