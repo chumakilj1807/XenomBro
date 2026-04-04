@@ -30,16 +30,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rvBookmarks: RecyclerView
 
     private var isNavMode = false
-    private var skipCheckJob: Runnable? = null
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var skipChecker: Runnable? = null
 
-    // Video file extensions to intercept and open in ExoPlayer
     private val videoExtensions = listOf(
         ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv",
         ".webm", ".m3u8", ".m3u", ".ts", ".mpd"
     )
-
-    // Ad domains loaded from assets
     private val adDomains = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,15 +45,15 @@ class MainActivity : AppCompatActivity() {
 
         loadAdDomains()
 
-        webView = findViewById(R.id.web_view)
-        etUrl = findViewById(R.id.et_url)
-        tvStatus = findViewById(R.id.tv_status)
-        btnBack = findViewById(R.id.btn_back)
-        btnForward = findViewById(R.id.btn_forward)
+        webView        = findViewById(R.id.web_view)
+        etUrl          = findViewById(R.id.et_url)
+        tvStatus       = findViewById(R.id.tv_status)
+        btnBack        = findViewById(R.id.btn_back)
+        btnForward     = findViewById(R.id.btn_forward)
         btnBookmarkAdd = findViewById(R.id.btn_bookmark_add)
-        btnBookmarks = findViewById(R.id.btn_bookmarks)
+        btnBookmarks   = findViewById(R.id.btn_bookmarks)
         panelBookmarks = findViewById(R.id.panel_bookmarks)
-        rvBookmarks = findViewById(R.id.rv_bookmarks)
+        rvBookmarks    = findViewById(R.id.rv_bookmarks)
 
         setupWebView()
         setupUrlBar()
@@ -64,21 +61,26 @@ class MainActivity : AppCompatActivity() {
         setupBookmarksList()
 
         webView.loadUrl("https://ya.ru")
-        startSkipButtonChecker()
+        startSkipChecker()
     }
+
+    // ─── Ad domains ──────────────────────────────────────────────────────────
 
     private fun loadAdDomains() {
         try {
             assets.open("adblock.txt").bufferedReader().forEachLine { line ->
-                val trimmed = line.trim()
-                if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
-                    adDomains.add(trimmed)
-                }
+                val t = line.trim()
+                if (t.isNotEmpty() && !t.startsWith("#")) adDomains.add(t)
             }
         } catch (_: Exception) {}
     }
 
+    // ─── WebView setup ───────────────────────────────────────────────────────
+
     private fun setupWebView() {
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -86,8 +88,8 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             builtInZoomControls = false
             mediaPlaybackRequiresUserGesture = false
-            userAgentString = "Mozilla/5.0 (Linux; Android 14; TV) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; TV) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -96,11 +98,8 @@ class MainActivity : AppCompatActivity() {
                 view: WebView, request: WebResourceRequest
             ): WebResourceResponse? {
                 val host = request.url.host ?: return null
-                // Block ad domains
-                if (adDomains.any { host == it || host.endsWith(".$it") }) {
-                    return WebResourceResponse("text/plain", "utf-8",
-                        "".byteInputStream())
-                }
+                if (adDomains.any { host == it || host.endsWith(".$it") })
+                    return WebResourceResponse("text/plain", "utf-8", "".byteInputStream())
                 return null
             }
 
@@ -108,9 +107,8 @@ class MainActivity : AppCompatActivity() {
                 view: WebView, request: WebResourceRequest
             ): Boolean {
                 val url = request.url.toString()
-                // Intercept direct video file links → ExoPlayer
                 if (videoExtensions.any { url.contains(it, ignoreCase = true) }) {
-                    openInExoPlayer(url, view.title ?: "")
+                    openInExoPlayer(url)
                     return true
                 }
                 return false
@@ -123,185 +121,197 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                injectNavigationJs()
+                injectJs()
                 updateNavButtons()
+                webView.requestFocus()
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
             private var customView: View? = null
-            private var customViewCallback: CustomViewCallback? = null
+            private var cb: CustomViewCallback? = null
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                // Video went fullscreen inside WebView
-                customView = view
-                customViewCallback = callback
-                window.decorView.systemUiVisibility = (
+                customView = view; cb = callback
+                window.decorView.systemUiVisibility =
                     View.SYSTEM_UI_FLAG_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                )
                 (window.decorView as ViewGroup).addView(view)
                 webView.visibility = View.GONE
                 findViewById<LinearLayout>(R.id.nav_bar).visibility = View.GONE
             }
 
             override fun onHideCustomView() {
-                customView?.let {
-                    (window.decorView as ViewGroup).removeView(it)
-                }
-                customView = null
-                customViewCallback?.onCustomViewHidden()
+                customView?.let { (window.decorView as ViewGroup).removeView(it) }
+                customView = null; cb?.onCustomViewHidden()
                 window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
                 webView.visibility = View.VISIBLE
                 findViewById<LinearLayout>(R.id.nav_bar).visibility = View.VISIBLE
+                webView.requestFocus()
             }
         }
     }
 
-    private fun injectNavigationJs() {
+    // ─── JS injection ────────────────────────────────────────────────────────
+
+    private fun injectJs() {
         val js = """
-            (function() {
-                if (window._xenomBrowserInited) return;
-                window._xenomBrowserInited = true;
+        (function(){
+            if(window._xbReady) return;
+            window._xbReady = true;
 
-                window._xb = {
-                    elements: [],
-                    index: -1,
+            window._xb = {
+                els: [], idx: -1,
 
-                    getClickable: function() {
-                        return Array.from(document.querySelectorAll(
-                            'a[href], button:not([disabled]), [role="button"], ' +
-                            'input[type="button"], input[type="submit"], [onclick]'
-                        )).filter(function(el) {
-                            var s = window.getComputedStyle(el);
-                            if (s.display === 'none' || s.visibility === 'hidden') return false;
-                            var r = el.getBoundingClientRect();
-                            return r.width > 0 && r.height > 0;
+                visible: function(el){
+                    var s = getComputedStyle(el);
+                    if(s.display==='none'||s.visibility==='hidden'||s.opacity==='0') return false;
+                    var r = el.getBoundingClientRect();
+                    return r.width>0 && r.height>0;
+                },
+
+                clickable: function(){
+                    return Array.from(document.querySelectorAll(
+                        'a[href],button:not([disabled]),[role="button"],input[type="submit"],input[type="button"]'
+                    )).filter(el => this.visible(el));
+                },
+
+                hl: function(el){
+                    document.querySelectorAll('[data-xb]').forEach(e=>{
+                        e.style.outline=e._xbOld||''; delete e._xbOld; e.removeAttribute('data-xb');
+                    });
+                    el._xbOld = el.style.outline||'';
+                    el.setAttribute('data-xb','1');
+                    el.style.outline='3px solid #00B4FF';
+                    el.scrollIntoView({block:'nearest',behavior:'smooth'});
+                },
+
+                enter: function(){
+                    this.els = this.clickable();
+                    this.idx = -1;
+                    return this.els.length;
+                },
+
+                next: function(){
+                    if(!this.els.length) this.els=this.clickable();
+                    if(!this.els.length) return 0;
+                    this.idx=(this.idx+1)%this.els.length;
+                    this.hl(this.els[this.idx]);
+                    return this.els.length;
+                },
+
+                prev: function(){
+                    if(!this.els.length) this.els=this.clickable();
+                    if(!this.els.length) return 0;
+                    this.idx=this.idx<=0?this.els.length-1:this.idx-1;
+                    this.hl(this.els[this.idx]);
+                    return this.els.length;
+                },
+
+                click: function(){
+                    if(this.idx>=0&&this.idx<this.els.length){
+                        document.querySelectorAll('[data-xb]').forEach(e=>{
+                            e.style.outline=e._xbOld||''; e.removeAttribute('data-xb');
                         });
-                    },
-
-                    getSkipButtons: function() {
-                        var skipTexts = ['пропустить', 'skip', 'закрыть', 'close'];
-                        var selectors = [
-                            '.ytp-skip-ad-button', '[class*="skip-ad"]', '[class*="ad-skip"]',
-                            '[class*="skip"]', '[id*="skip"]', '[class*="adClose"]',
-                            '[class*="close-ad"]', '[class*="closeAd"]'
-                        ].join(',');
-
-                        var bySelector = [];
-                        try { bySelector = Array.from(document.querySelectorAll(selectors)); } catch(e) {}
-
-                        var byText = Array.from(document.querySelectorAll('button, [role="button"], a'))
-                            .filter(function(el) {
-                                var text = el.textContent.toLowerCase().trim();
-                                return skipTexts.some(function(t) { return text.includes(t); });
-                            });
-
-                        var all = bySelector.concat(byText);
-                        return all.filter(function(el, i, arr) {
-                            if (arr.indexOf(el) !== i) return false;
-                            var s = window.getComputedStyle(el);
-                            if (s.display === 'none' || s.visibility === 'hidden') return false;
-                            var r = el.getBoundingClientRect();
-                            return r.width > 0 && r.height > 0;
-                        });
-                    },
-
-                    clearHighlight: function() {
-                        document.querySelectorAll('[data-xb-focused]').forEach(function(el) {
-                            el.style.outline = el.getAttribute('data-xb-outline') || '';
-                            el.removeAttribute('data-xb-focused');
-                            el.removeAttribute('data-xb-outline');
-                        });
-                    },
-
-                    highlight: function(el) {
-                        this.clearHighlight();
-                        el.setAttribute('data-xb-outline', el.style.outline || '');
-                        el.setAttribute('data-xb-focused', '1');
-                        el.style.outline = '3px solid #00B4FF';
-                        el.scrollIntoView({block: 'nearest', behavior: 'smooth'});
-                    },
-
-                    enterNav: function() {
-                        this.elements = this.getClickable();
-                        this.index = -1;
-                        return this.elements.length;
-                    },
-
-                    next: function() {
-                        if (this.elements.length === 0) this.elements = this.getClickable();
-                        if (this.elements.length === 0) return 0;
-                        this.index = (this.index + 1) % this.elements.length;
-                        this.highlight(this.elements[this.index]);
-                        return this.elements.length;
-                    },
-
-                    prev: function() {
-                        if (this.elements.length === 0) this.elements = this.getClickable();
-                        if (this.elements.length === 0) return 0;
-                        this.index = this.index <= 0 ? this.elements.length - 1 : this.index - 1;
-                        this.highlight(this.elements[this.index]);
-                        return this.elements.length;
-                    },
-
-                    click: function() {
-                        if (this.index >= 0 && this.index < this.elements.length) {
-                            this.clearHighlight();
-                            this.elements[this.index].click();
-                            this.elements = [];
-                            this.index = -1;
-                        }
-                    },
-
-                    exit: function() {
-                        this.clearHighlight();
-                        this.elements = [];
-                        this.index = -1;
-                    },
-
-                    checkSkip: function() {
-                        var btns = this.getSkipButtons();
-                        return btns.length;
-                    },
-
-                    clickSkip: function() {
-                        var btns = this.getSkipButtons();
-                        if (btns.length > 0) { btns[0].click(); return true; }
-                        return false;
+                        this.els[this.idx].click();
+                        this.els=[]; this.idx=-1;
                     }
-                };
-            })();
+                },
+
+                exit: function(){
+                    document.querySelectorAll('[data-xb]').forEach(e=>{
+                        e.style.outline=e._xbOld||''; e.removeAttribute('data-xb');
+                    });
+                    this.els=[]; this.idx=-1;
+                },
+
+                /* Skip detection — ONLY when a video element is actually playing */
+                checkSkip: function(){
+                    var videos = Array.from(document.querySelectorAll('video'));
+                    var playing = videos.some(function(v){
+                        return !v.paused && !v.ended && v.readyState>2 && v.currentTime>0;
+                    });
+                    if(!playing) return 0;
+
+                    var skipTexts = ['пропустить','skip','закрыть','close'];
+                    var sel = [
+                        '.ytp-skip-ad-button','[class*="skip-ad"]','[class*="ad-skip"]',
+                        '[class*="skipAd"]','[id*="skip-ad"]','[class*="skip_ad"]'
+                    ].join(',');
+                    var byClass = [];
+                    try{ byClass=Array.from(document.querySelectorAll(sel)); }catch(e){}
+                    var byText = Array.from(document.querySelectorAll(
+                        'button,[role="button"]'
+                    )).filter(el=>{
+                        var t=el.textContent.toLowerCase().trim();
+                        return skipTexts.some(s=>t===s||t.startsWith(s));
+                    });
+                    var all=[...byClass,...byText].filter((el,i,a)=>
+                        a.indexOf(el)===i && this.visible(el)
+                    );
+                    return all.length;
+                },
+
+                clickSkip: function(){
+                    var videos = Array.from(document.querySelectorAll('video'));
+                    var playing = videos.some(function(v){
+                        return !v.paused && !v.ended && v.readyState>2 && v.currentTime>0;
+                    });
+                    if(!playing) return false;
+                    var sel=['.ytp-skip-ad-button','[class*="skip-ad"]','[class*="ad-skip"]'].join(',');
+                    var btns=[];
+                    try{ btns=Array.from(document.querySelectorAll(sel)).filter(el=>this.visible(el)); }catch(e){}
+                    if(!btns.length){
+                        var skipTexts=['пропустить','skip'];
+                        btns=Array.from(document.querySelectorAll('button,[role="button"]'))
+                            .filter(el=>{
+                                var t=el.textContent.toLowerCase().trim();
+                                return skipTexts.some(s=>t===s||t.startsWith(s))&&this.visible(el);
+                            });
+                    }
+                    if(btns.length){ btns[0].click(); return true; }
+                    return false;
+                }
+            };
+        })();
         """.trimIndent()
         webView.evaluateJavascript(js, null)
     }
 
-    // Periodically check for skip buttons
-    private fun startSkipButtonChecker() {
-        skipCheckJob = object : Runnable {
+    // ─── Skip checker (polls every second, only fires when video plays) ──────
+
+    private fun startSkipChecker() {
+        skipChecker = object : Runnable {
             override fun run() {
-                if (!isNavMode) {
-                    webView.evaluateJavascript("window._xb ? window._xb.checkSkip() : 0") { result ->
-                        val count = result?.trim()?.toIntOrNull() ?: 0
-                        if (count > 0) {
-                            showStatus(getString(R.string.skip_found))
-                        } else if (tvStatus.visibility == View.VISIBLE &&
-                            tvStatus.text == getString(R.string.skip_found)) {
-                            tvStatus.visibility = View.GONE
-                        }
-                    }
+                webView.evaluateJavascript("window._xb ? window._xb.checkSkip() : 0") { r ->
+                    val n = r?.trim()?.toIntOrNull() ?: 0
+                    if (n > 0) showStatus("Реклама — ОК для пропуска")
+                    else if (tvStatus.text == "Реклама — ОК для пропуска")
+                        tvStatus.visibility = View.GONE
                 }
-                handler.postDelayed(this, 800)
+                handler.postDelayed(this, 1000)
             }
         }
-        handler.postDelayed(skipCheckJob!!, 800)
+        handler.postDelayed(skipChecker!!, 1000)
     }
+
+    // ─── URL bar ─────────────────────────────────────────────────────────────
 
     private fun setupUrlBar() {
         etUrl.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_GO) {
+            if (actionId == EditorInfo.IME_ACTION_GO ||
+                actionId == EditorInfo.IME_ACTION_SEARCH ||
+                actionId == EditorInfo.IME_ACTION_DONE) {
                 navigate(etUrl.text.toString().trim())
+                webView.requestFocus()
+                true
+            } else false
+        }
+        // DOWN from URL bar → WebView
+        etUrl.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 webView.requestFocus()
                 true
             } else false
@@ -317,13 +327,11 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(url)
     }
 
+    // ─── Buttons ─────────────────────────────────────────────────────────────
+
     private fun setupButtons() {
-        btnBack.setOnClickListener {
-            if (webView.canGoBack()) webView.goBack()
-        }
-        btnForward.setOnClickListener {
-            if (webView.canGoForward()) webView.goForward()
-        }
+        btnBack.setOnClickListener { if (webView.canGoBack()) webView.goBack() }
+        btnForward.setOnClickListener { if (webView.canGoForward()) webView.goForward() }
         btnBookmarkAdd.setOnClickListener {
             val url = webView.url ?: return@setOnClickListener
             val title = webView.title ?: url
@@ -345,12 +353,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBookmarkButton(url: String) {
-        val isSaved = BookmarkManager.contains(this, url)
         btnBookmarkAdd.setImageResource(
-            if (isSaved) android.R.drawable.btn_star_big_on
+            if (BookmarkManager.contains(this, url)) android.R.drawable.btn_star_big_on
             else android.R.drawable.btn_star_big_off
         )
     }
+
+    private fun updateNavButtons() {
+        btnBack.alpha    = if (webView.canGoBack()) 1f else 0.4f
+        btnForward.alpha = if (webView.canGoForward()) 1f else 0.4f
+    }
+
+    // ─── Bookmarks ───────────────────────────────────────────────────────────
 
     private fun setupBookmarksList() {
         rvBookmarks.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
@@ -360,10 +374,10 @@ class MainActivity : AppCompatActivity() {
     private fun refreshBookmarksList() {
         val items = BookmarkManager.getAll(this)
         rvBookmarks.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                val v = layoutInflater.inflate(R.layout.item_bookmark, parent, false)
-                return object : RecyclerView.ViewHolder(v) {}
-            }
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+                object : RecyclerView.ViewHolder(
+                    layoutInflater.inflate(R.layout.item_bookmark, parent, false)
+                ) {}
             override fun getItemCount() = items.size
             override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
                 val bm = items[position]
@@ -373,33 +387,24 @@ class MainActivity : AppCompatActivity() {
                     panelBookmarks.visibility = View.GONE
                     webView.requestFocus()
                 }
-                holder.itemView.setOnLongClickListener {
-                    BookmarkManager.remove(this@MainActivity, bm.url)
-                    refreshBookmarksList()
-                    true
-                }
-                holder.itemView.findViewById<ImageButton>(R.id.btn_delete_bookmark).setOnClickListener {
-                    BookmarkManager.remove(this@MainActivity, bm.url)
-                    refreshBookmarksList()
-                }
+                holder.itemView.findViewById<ImageButton>(R.id.btn_delete_bookmark)
+                    .setOnClickListener {
+                        BookmarkManager.remove(this@MainActivity, bm.url)
+                        refreshBookmarksList()
+                    }
             }
         }
     }
 
-    private fun updateNavButtons() {
-        btnBack.alpha = if (webView.canGoBack()) 1f else 0.4f
-        btnForward.alpha = if (webView.canGoForward()) 1f else 0.4f
-    }
+    // ─── Nav mode ────────────────────────────────────────────────────────────
 
     private fun enterNavMode() {
-        isNavMode = true
-        webView.evaluateJavascript("window._xb ? window._xb.enterNav() : 0") { count ->
-            val n = count?.trim()?.toIntOrNull() ?: 0
+        webView.evaluateJavascript("window._xb ? window._xb.enter() : 0") { r ->
+            val n = r?.trim()?.toIntOrNull() ?: 0
             if (n > 0) {
+                isNavMode = true
                 showStatus(getString(R.string.nav_mode_on))
                 webView.evaluateJavascript("window._xb.next()", null)
-            } else {
-                isNavMode = false
             }
         }
     }
@@ -415,62 +420,68 @@ class MainActivity : AppCompatActivity() {
         tvStatus.visibility = View.VISIBLE
     }
 
-    private fun openInExoPlayer(url: String, title: String) {
-        startActivity(Intent(this, VideoActivity::class.java).apply {
-            putExtra(VideoActivity.EXTRA_URL, url)
-            putExtra(VideoActivity.EXTRA_TITLE, title)
-        })
-    }
+    // ─── D-pad — все события через dispatchKeyEvent ───────────────────────────
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // If URL bar is focused — let it handle keys
-        if (etUrl.isFocused) return super.onKeyDown(keyCode, event)
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
 
-        // If bookmarks panel is open
-        if (panelBookmarks.visibility == View.VISIBLE) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                panelBookmarks.visibility = View.GONE
-                return true
+        // URL bar — DOWN/BACK возвращает в WebView, остальное обрабатывает сам
+        if (etUrl.isFocused) {
+            return when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_BACK -> {
+                    webView.requestFocus(); true
+                }
+                else -> super.dispatchKeyEvent(event)
             }
-            return super.onKeyDown(keyCode, event)
         }
 
-        return when (keyCode) {
+        // Закладки
+        if (panelBookmarks.visibility == View.VISIBLE) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                panelBookmarks.visibility = View.GONE; return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
+
+        return when (event.keyCode) {
+
             KeyEvent.KEYCODE_DPAD_UP -> {
-                if (isNavMode) {
-                    webView.evaluateJavascript("window._xb.prev()", null)
-                    true
-                } else {
-                    webView.scrollBy(0, -200)
-                    true
+                when {
+                    isNavMode -> webView.evaluateJavascript("window._xb.prev()", null)
+                    webView.scrollY <= 0 -> {
+                        // В самом верху — переходим в URL-строку
+                        etUrl.requestFocus()
+                        etUrl.selectAll()
+                    }
+                    else -> webView.scrollBy(0, -250)
                 }
+                true
             }
+
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (isNavMode) {
-                    webView.evaluateJavascript("window._xb.next()", null)
-                    true
-                } else {
-                    webView.scrollBy(0, 200)
-                    true
-                }
+                if (isNavMode) webView.evaluateJavascript("window._xb.next()", null)
+                else webView.scrollBy(0, 250)
+                true
             }
+
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (!isNavMode) { webView.scrollBy(-200, 0); true }
-                else super.onKeyDown(keyCode, event)
+                if (!isNavMode) webView.scrollBy(-250, 0)
+                true
             }
+
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (!isNavMode) { webView.scrollBy(200, 0); true }
-                else super.onKeyDown(keyCode, event)
+                if (!isNavMode) webView.scrollBy(250, 0)
+                true
             }
+
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 if (isNavMode) {
                     webView.evaluateJavascript("window._xb.click()", null)
                     exitNavMode()
                 } else {
-                    // Check for skip buttons first
-                    webView.evaluateJavascript("window._xb ? window._xb.checkSkip() : 0") { result ->
-                        val count = result?.trim()?.toIntOrNull() ?: 0
-                        if (count > 0) {
+                    // Проверяем кнопку пропуска рекламы (только если видео играет)
+                    webView.evaluateJavascript("window._xb ? window._xb.checkSkip() : 0") { r ->
+                        if ((r?.trim()?.toIntOrNull() ?: 0) > 0) {
                             webView.evaluateJavascript("window._xb.clickSkip()", null)
                             tvStatus.visibility = View.GONE
                         } else {
@@ -480,6 +491,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 true
             }
+
             KeyEvent.KEYCODE_BACK -> {
                 when {
                     isNavMode -> { exitNavMode(); true }
@@ -487,13 +499,22 @@ class MainActivity : AppCompatActivity() {
                     else -> { finish(); true }
                 }
             }
-            else -> super.onKeyDown(keyCode, event)
+
+            else -> super.dispatchKeyEvent(event)
         }
+    }
+
+    // ─── Video / misc ────────────────────────────────────────────────────────
+
+    private fun openInExoPlayer(url: String) {
+        startActivity(Intent(this, VideoActivity::class.java).apply {
+            putExtra(VideoActivity.EXTRA_URL, url)
+        })
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        skipCheckJob?.let { handler.removeCallbacks(it) }
+        skipChecker?.let { handler.removeCallbacks(it) }
         webView.destroy()
     }
 }
