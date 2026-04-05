@@ -5,92 +5,88 @@
     android:orientation="vertical"
     android:background="@color/bg">
 
-    <!-- Top navigation bar -->
+    <!-- Top bar -->
     <LinearLayout
         android:id="@+id/nav_bar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="52dp"
         android:background="@color/surface"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
 
         <ImageButton
             android:id="@+id/btn_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@android:drawable/ic_media_previous"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/text"
-            android:focusable="true"
-            android:nextFocusDown="@id/webview_panel"/>
+            android:focusable="false"/>
 
         <ImageButton
             android:id="@+id/btn_forward"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@android:drawable/ic_media_next"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/text"
-            android:focusable="true"
-            android:nextFocusDown="@id/webview_panel"/>
+            android:focusable="false"/>
 
         <EditText
             android:id="@+id/et_url"
             android:layout_width="0dp"
-            android:layout_height="40dp"
+            android:layout_height="38dp"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
             android:background="@drawable/bg_url_bar"
             android:hint="@string/search_hint"
             android:textColorHint="@color/text_hint"
             android:textColor="@color/text"
-            android:textSize="16sp"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
+            android:textSize="15sp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
             android:singleLine="true"
-            android:imeOptions="actionGo"
+            android:imeOptions="actionGo|flagNoFullscreen"
             android:inputType="text|textUri"
             android:focusable="true"
-            android:selectAllOnFocus="true"
-            android:nextFocusDown="@id/webview_panel"/>
+            android:focusableInTouchMode="true"
+            android:selectAllOnFocus="true"/>
 
         <ImageButton
             android:id="@+id/btn_bookmark_add"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@android:drawable/btn_star_big_off"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/brand"
-            android:focusable="true"
-            android:nextFocusDown="@id/webview_panel"/>
+            android:focusable="false"/>
 
         <ImageButton
             android:id="@+id/btn_bookmarks"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:src="@android:drawable/ic_menu_sort_by_size"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:tint="@color/text"
-            android:focusable="true"
-            android:nextFocusDown="@id/webview_panel"/>
+            android:focusable="false"/>
     </LinearLayout>
 
-    <!-- Status bar -->
+    <!-- Status hint bar -->
     <TextView
         android:id="@+id/tv_status"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#CC003366"
+        android:layout_height="28dp"
+        android:background="#CC0D1117"
         android:textColor="@color/brand"
-        android:textSize="13sp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:visibility="gone"/>
+        android:textSize="12sp"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:text="ОК — выбор ссылок   ↑ из верха страницы — строка поиска"
+        android:visibility="visible"/>
 
     <!-- Bookmarks panel -->
     <LinearLayout
@@ -103,51 +99,16 @@
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_bookmarks"
             android:layout_width="match_parent"
-            android:layout_height="200dp"/>
+            android:layout_height="180dp"/>
     </LinearLayout>
 
-    <!-- WebView panel (focusable container) -->
-    <FrameLayout
-        android:id="@+id/webview_panel"
+    <!-- WebView — takes all remaining space, no focusable -->
+    <WebView
+        android:id="@+id/web_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:focusable="true"
-        android:focusableInTouchMode="false"
-        android:nextFocusUp="@id/et_url">
-
-        <WebView
-            android:id="@+id/web_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:focusable="false"/>
-
-        <!-- Overlay shown when panel focused in UI_NAV mode -->
-        <LinearLayout
-            android:id="@+id/webview_hint_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#99000000"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Удержите ОК для входа"
-                android:textColor="#00B4FF"
-                android:textSize="28sp"
-                android:textStyle="bold"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Стрелки — прокрутка   ОК — клик по ссылке"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"/>
-        </LinearLayout>
-    </FrameLayout>
+        android:focusable="false"
+        android:focusableInTouchMode="false"/>
 
 </LinearLayout>
