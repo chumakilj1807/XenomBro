@@ -179,6 +179,15 @@ class MainActivity : AppCompatActivity() {
                         /* Yandex inputs */
                         'input[name="text"]',
                         'input.input__control',
+                        /* Media elements */
+                        'video',
+                        'audio',
+                        '[class*="player"]',
+                        '[class*="thumb"] a',
+                        '[class*="preview"] a',
+                        'figure a',
+                        '[data-video] a',
+                        '[data-src]',
                         /* General */
                         'a[href]:not([href^="javascript"])',
                         'button:not([disabled])',
@@ -249,7 +258,21 @@ class MainActivity : AppCompatActivity() {
                         el.click();
                         return 'input';
                     }
-                    el.click();
+                    /* Direct video/audio play */
+                    if (el.tagName === 'VIDEO') { el.play(); return 'video_played'; }
+                    if (el.tagName === 'AUDIO') { el.play(); return 'audio_played'; }
+                    /* Check if element contains a video */
+                    var innerVideo = el.querySelector('video');
+                    if (innerVideo) { innerVideo.play(); return 'video_played'; }
+                    /* MouseEvent simulation for player triggers */
+                    var rect = el.getBoundingClientRect();
+                    var cx = rect.left + rect.width / 2;
+                    var cy = rect.top + rect.height / 2;
+                    ['mousedown', 'mouseup', 'click'].forEach(function(type) {
+                        el.dispatchEvent(new MouseEvent(type, {
+                            bubbles: true, cancelable: true, clientX: cx, clientY: cy
+                        }));
+                    });
                     return el.href || el.textContent.trim().substring(0, 40);
                 },
 
@@ -457,14 +480,21 @@ class MainActivity : AppCompatActivity() {
                     Mode.PICK -> {
                         webView.evaluateJavascript("window._xb.click()") { result ->
                             val r = result?.trim()?.removeSurrounding("\"") ?: ""
-                            if (r == "input") {
-                                // Clicked an input — focus URL bar logic doesn't apply,
-                                // the WebView input field will handle keyboard via onShowCustomView
-                                // or we just exit pick mode
-                                mode = Mode.SCROLL
-                                hint("Введите текст в поле")
-                            } else {
-                                mode = Mode.SCROLL
+                            mode = Mode.SCROLL
+                            when {
+                                r == "input" -> {
+                                    // Force keyboard on WebView input field
+                                    webView.requestFocus()
+                                    handler.postDelayed({
+                                        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                                        imm.showSoftInput(webView, InputMethodManager.SHOW_FORCED)
+                                    }, 200)
+                                    hint("Введите текст, затем нажмите Enter")
+                                }
+                                r == "video_played" || r == "audio_played" -> {
+                                    hint("Воспроизведение запущено")
+                                }
+                                else -> {}
                             }
                         }
                         true
